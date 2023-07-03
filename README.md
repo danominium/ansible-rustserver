@@ -1,3 +1,7 @@
+# Ansible Rustserver
+- Rockey Linux
+- LinuxGSM
+
 # SETUP
 ```bash
 dnf install git-core ansible-core
