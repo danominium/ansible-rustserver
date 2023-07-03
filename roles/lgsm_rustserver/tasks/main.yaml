@@ -1,0 +1,112 @@
+---
+# selinux
+- name: check selinux status
+  ansible.builtin.command: /sbin/getenforce
+  register: getenforce_result
+  changed_when: false
+- name: disable selinux
+  ansible.builtin.command: grubby --update-kernel ALL --args selinux=0
+  register: disable_selinux_result
+  when: "getenforce_result.stdout != 'Disabled'"
+- name: Reboot for apply disble selinux
+  ansible.builtin.reboot:
+  when: disable_selinux_result.changed
+
+# firewall
+- name: install firewalld
+  dnf:
+    name: firewalld
+    state: latest
+- name: install python3-firewall
+  dnf:
+    name: python3-firewall
+    state: latest
+- name: enable firewalld
+  ansible.builtin.systemd:
+    name: firewalld.service
+    state: started
+    enabled: true
+- name: allow ports
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: enabled
+  loop:
+    - 28015/udp # game
+    - 28017/udp # query
+    - 28016/tcp # rcon
+    - 28082/tcp # rust plus
+  register: firewall_config_result
+- name: restart wirewalld
+  ansible.builtin.systemd:
+    name: firewalld.service
+    state: restarted
+  when: firewall_config_result.changed
+
+# server
+# https://linuxgsm.com/servers/rustserver/
+- name: enable epel
+  ansible.builtin.dnf:
+    name: epel-release
+    state: latest
+- name: install dependencies
+  ansible.builtin.dnf:
+    name:
+      - curl
+      - wget
+      - tar
+      - bzip2
+      - gzip
+      - unzip
+      - python3
+      - binutils
+      - bc
+      - jq
+      - tmux
+      - glibc.i686
+      - libstdc++
+      - libstdc++.i686
+      - zlib-devel
+      # warn from ./rustserver start
+      - nmap-ncat
+      # - python36 # XXX EOL
+    state: latest
+- name: add user
+  ansible.builtin.user:
+    name: rustserver
+    #groups: wheel
+    #append: yes
+- name: download linux game server manager
+  ansible.builtin.get_url:
+    url: https://linuxgsm.sh
+    dest: ~/linuxgsm.sh
+    mode: "744"
+  become_user: rustserver
+- name: download rustserver
+  ansible.builtin.shell: ~/linuxgsm.sh rustserver
+  args:
+    chdir: ~/
+    creates: ~/rustserver
+  become_user: rustserver
+- name: install rustserver
+  ansible.builtin.shell: ~/rustserver auto-install
+  # require 7GB
+  args:
+    chdir: ~/
+    creates: ~/serverfiles/RustDedicated
+  become_user: rustserver
+
+# config
+- name: Copy instance setting
+  ansible.builtin.copy:
+    src: roles/lgsm_rustserver/files/rustserver.cfg
+    dest: ~/lgsm/config-lgsm/rustserver/
+  become_user: rustserver
+- name: Copy server setting
+  ansible.builtin.copy:
+    src: roles/lgsm_rustserver/files/server.cfg
+    dest: ~/serverfiles/server/rustserver/cfg/
+  become_user: rustserver
+
+# start
+# TODO systemd
